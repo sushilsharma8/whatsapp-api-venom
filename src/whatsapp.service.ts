@@ -16,11 +16,13 @@ const writeFileAsync = promisify(fs.writeFile)
 const SECOND = 1000;
 
 const venomOptions: Record<string, unknown> = {
+    session: 'sessionName',
     headless: true,
     multidevice: true,
     devtools: false,
     debug: false,
     logQR: true,
+    disableWelcome: true,
     folderNameToken: 'tokens',
     mkdirFolderToken: '',
     browserArgs: [
@@ -34,23 +36,23 @@ const venomOptions: Record<string, unknown> = {
     ],
     // 0 = never auto-close while waiting for QR (needed on Railway)
     autoClose: 0,
+    catchQR: (base64Qr: string, asciiQR: string) => {
+        console.log(asciiQR);
+    },
 }
 
 if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     venomOptions.browserPathExecutable = process.env.PUPPETEER_EXECUTABLE_PATH
+    venomOptions.puppeteerOptions = {
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    }
 }
 
 export const whatsappProvider = {
     provide: 'WHATSAPP',
-    useFactory: async (config: ConfigService) => create('sessionName',
-        (base64Qr, asciiQR) => {
-            console.log(asciiQR);
-        },
-        (statusFind) => {
-            console.log(statusFind);
-        },
-        venomOptions,
-    ),
+    // Object form only — passing statusFind separately crashes venom-bot 4.3.x
+    // (it reads this.session in a free function). QR still prints via catchQR/logQR.
+    useFactory: async () => create(venomOptions as any),
 }
 
 const ONMESSAGE_HOOK = "onMessage"
