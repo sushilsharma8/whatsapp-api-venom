@@ -1,0 +1,16 @@
+node_modules
+dist
+tokens
+files
+.git
+.gitignore
+docs
+examples
+coverage
+*.md
+.env
+.env.*
+.DS_Store
+.vscode
+.idea
+*.log

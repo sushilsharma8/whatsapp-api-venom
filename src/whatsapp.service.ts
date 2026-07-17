@@ -15,6 +15,31 @@ const writeFileAsync = promisify(fs.writeFile)
 
 const SECOND = 1000;
 
+const venomOptions: Record<string, unknown> = {
+    headless: true,
+    multidevice: true,
+    devtools: false,
+    debug: false,
+    logQR: true,
+    folderNameToken: 'tokens',
+    mkdirFolderToken: '',
+    browserArgs: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+    ],
+    // 0 = never auto-close while waiting for QR (needed on Railway)
+    autoClose: 0,
+}
+
+if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    venomOptions.browserPathExecutable = process.env.PUPPETEER_EXECUTABLE_PATH
+}
+
 export const whatsappProvider = {
     provide: 'WHATSAPP',
     useFactory: async (config: ConfigService) => create('sessionName',
@@ -24,21 +49,7 @@ export const whatsappProvider = {
         (statusFind) => {
             console.log(statusFind);
         },
-        {
-            headless: true,
-	    multidevice: true,
-            devtools: false,
-            //useChrome: true,
-            debug: false,
-            logQR: true,
-			//mkdirFolderToken: '',
-            browserArgs: [
-                    '--no-sandbox'
-                ],
-            autoClose: 60000,
-            //createPathFileToken: true,
-            //puppeteerOptions: {},
-        }
+        venomOptions,
     ),
 }
 
