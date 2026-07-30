@@ -9,6 +9,17 @@ export class DeviceController {
     constructor(@Inject('WHATSAPP') private whatsapp: Whatsapp) {
     }
 
+    @Get('/health')
+    health() {
+        const status = typeof (this.whatsapp as any).__status === 'function'
+            ? (this.whatsapp as any).__status()
+            : { ready: false, error: null }
+        return {
+            ok: true,
+            whatsapp: status,
+        }
+    }
+
     @Post('/killServiceWorker')
     killServiceWorker() {
         return this.whatsapp.killServiceWorker()

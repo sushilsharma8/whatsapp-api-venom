@@ -1,8 +1,7 @@
-import {create, Message, Whatsapp} from "venom-bot";
-import {Inject, Injectable, Logger, OnApplicationShutdown} from "@nestjs/common";
-import {ConfigService} from "@nestjs/config";
+import {Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown} from "@nestjs/common";
 import * as path from "path";
 import {WhatsappConfigService} from "./config.service";
+import type {Message, Whatsapp} from "venom-bot";
 import request = require('requestretry');
 import mime = require('mime-types');
 import fs = require('fs');
@@ -32,16 +31,26 @@ const venomOptions: Record<string, unknown> = {
     BrowserFetcher: false,
     folderNameToken: 'tokens',
     mkdirFolderToken: '',
-    browserArgs: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--single-process',
-    ],
+    browserArgs: onRailway
+        ? [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--disable-gpu',
+              '--single-process',
+              '--disable-background-networking',
+          ]
+        : [
+              // Local macOS Chrome crashes with --single-process / --no-zygote
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--no-first-run',
+              '--disable-gpu',
+          ],
     // 0 = never auto-close while waiting for QR
     autoClose: 0,
     catchQR: (_base64Qr: string, asciiQR: string) => {
@@ -57,28 +66,48 @@ if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     venomOptions.browserPathExecutable = process.env.PUPPETEER_EXECUTABLE_PATH
 }
 
-type WhatsappGate = Whatsapp & { __ready: Promise<Whatsapp> }
+type WhatsappGate = Whatsapp & {
+    __ready: Promise<Whatsapp>
+    __start: () => Promise<Whatsapp>
+    __status: () => { ready: boolean; error: string | null }
+}
 
-/** Start venom in the background so Nest can bind PORT (Railway healthcheck). */
+/**
+ * Lazy WhatsApp client: HTTP can bind PORT before Chromium starts.
+ * venom-bot is dynamically imported so undici/File issues can't block listen.
+ */
 function createWhatsappGate(): WhatsappGate {
     let client: Whatsapp | null = null
     let initError: Error | null = null
-    const ready = create(venomOptions as any)
-        .then((c: Whatsapp) => {
+    let ready: Promise<Whatsapp> | null = null
+
+    const start = (): Promise<Whatsapp> => {
+        if (ready) return ready
+        ready = (async () => {
+            console.log('[WhatsApp] starting venom (dynamic import)...')
+            const { create } = await import('venom-bot')
+            const c = await create(venomOptions as any)
             client = c
             console.log('[WhatsApp] client ready')
             return c
-        })
-        .catch((e: Error) => {
+        })().catch((e: Error) => {
             initError = e
             console.error('[WhatsApp] init failed', e)
             throw e
         })
+        // Avoid unhandled rejection killing the Node process on Railway
+        ready.catch(() => undefined)
+        return ready
+    }
 
     const resolveProp = (prop: string | symbol) => {
         if (initError) return Promise.reject(initError)
-        if (client) return Promise.resolve((client as any)[prop])
-        return ready.then((c) => (c as any)[prop])
+        const bind = (c: Whatsapp) => {
+            const val = (c as any)[prop]
+            return typeof val === 'function' ? val.bind(c) : val
+        }
+        if (client) return Promise.resolve(bind(client))
+        return start().then(bind)
     }
 
     // ponytail: Proxy queues calls until venom boots; supports whatsapp.page.screenshot()
@@ -105,8 +134,25 @@ function createWhatsappGate(): WhatsappGate {
 
     return new Proxy({} as WhatsappGate, {
         get(_target, prop: string | symbol) {
-            if (prop === '__ready') return ready
+            if (prop === '__start') return start
+            if (prop === '__ready') return ready || start()
+            if (prop === '__status') {
+                return () => ({
+                    ready: !!client,
+                    error: initError ? String(initError.message || initError) : null,
+                })
+            }
             if (prop === 'then') return undefined
+            // Nest calls lifecycle hooks on factory instances — don't fake these
+            if (
+                prop === 'onModuleInit' ||
+                prop === 'onModuleDestroy' ||
+                prop === 'onApplicationBootstrap' ||
+                prop === 'onApplicationShutdown' ||
+                prop === 'beforeApplicationShutdown'
+            ) {
+                return undefined
+            }
             return gate(() => resolveProp(prop))
         },
     })
@@ -132,7 +178,7 @@ const ENV_PREFIX = "WHATSAPP_HOOK_"
 
 
 @Injectable()
-export class WhatsappService implements OnApplicationShutdown {
+export class WhatsappService implements OnApplicationBootstrap, OnApplicationShutdown {
     // TODO: Use environment variables
     private RETRY_DELAY = 15
     private RETRY_ATTEMPTS = 3;
@@ -151,9 +197,12 @@ export class WhatsappService implements OnApplicationShutdown {
         this.clean_downloads()
         this.mimetypes = this.config.mimetypes
         this.files_lifetime = this.config.files_lifetime * SECOND
+    }
 
-        // Hooks need a live client — attach after background venom init
-        this.whatsapp.__ready
+    /** Runs after Nest is listening — safe for Railway healthchecks. */
+    onApplicationBootstrap() {
+        this.log.log('HTTP is up — starting WhatsApp client in background...')
+        this.whatsapp.__start()
             .then(() => this.configureWebhooks())
             .catch((e) => this.log.error(`WhatsApp not ready for webhooks: ${e}`))
     }

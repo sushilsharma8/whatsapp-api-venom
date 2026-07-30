@@ -1,15 +1,17 @@
+import './file-polyfill'
 import {NestFactory} from '@nestjs/core';
 import {AppModule} from './app.module';
 import {DocumentBuilder, SwaggerModule} from "@nestjs/swagger";
 import {WhatsappConfigService} from "./config.service";
 const fileUpload = require('express-fileupload');
+
 async function bootstrap() {
     const app = await NestFactory.create(AppModule, {
         logger: process.env.DEBUG != undefined ? ['log', 'debug', 'error', 'verbose', 'warn'] :
             ['log', 'error', 'warn'],
     });
-app.use(fileUpload({
-}))
+    app.use(fileUpload({
+    }))
     app.enableShutdownHooks();
     const options = new DocumentBuilder()
         .setTitle('WhatsApp venom API')
@@ -26,12 +28,18 @@ app.use(fileUpload({
         )
         .build();
     const document = SwaggerModule.createDocument(app, options);
+    // Root + /docs (Railway users often open /docs)
     SwaggerModule.setup('', app, document);
+    SwaggerModule.setup('docs', app, document);
 
     const config = app.get(WhatsappConfigService);
+    const port = Number(config.port) || 3000
     // Bind all interfaces so Railway's proxy can reach the container
-    await app.listen(config.port, '0.0.0.0');
+    await app.listen(port, '0.0.0.0');
     console.log(`WhatsApp HTTP API is running on: ${await app.getUrl()}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+    console.error('Fatal bootstrap error', err)
+    process.exit(1)
+});
