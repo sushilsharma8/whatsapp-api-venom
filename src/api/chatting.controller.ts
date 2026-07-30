@@ -36,7 +36,12 @@ export class ChattingController {
 
     @Post('/send-linkPreview')
     sendLinkPreview(@Body() message: MessageLinkPreview) {
-        return this.whatsapp.sendLinkPreview(message.number + '@c.us', message.url, message.title)
+        return this.whatsapp.sendLinkPreview(
+            message.number + '@c.us',
+            message.url,
+            message.title,
+            message.title,
+        )
     }
 
     @Post('/send-image')
@@ -63,19 +68,19 @@ export class ChattingController {
 
     @Post('/send-seen')
     sendSeen(@Body() chat: Chat) {
-        return this.whatsapp.sendSeen(chat.number)
+        return this.whatsapp.markMarkSeenMessage(chat.number + '@c.us')
     }
 
     @Post('/start-typing')
     startTyping(@Body() chat: Chat) {
         // It's infinitive action
-        this.whatsapp.startTyping(chat.number)
+        this.whatsapp.startTyping(chat.number + '@c.us', false)
         return true
     }
 
     @Post('/stop-typing')
     stopTyping(@Body() chat: Chat) {
-        this.whatsapp.stopTyping(chat.number)
+        this.whatsapp.markPaused(chat.number + '@c.us', false)
         return true
     }
 }

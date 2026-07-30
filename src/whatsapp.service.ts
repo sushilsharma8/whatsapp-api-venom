@@ -17,12 +17,13 @@ const SECOND = 1000;
 
 const venomOptions: Record<string, unknown> = {
     session: 'sessionName',
-    headless: true,
-    multidevice: true,
+    // false = visible Chrome window so you can scan QR locally
+    headless: process.env.WHATSAPP_HEADLESS === 'true' ? true : false,
     devtools: false,
     debug: false,
     logQR: true,
     disableWelcome: true,
+    BrowserFetcher: false,
     folderNameToken: 'tokens',
     mkdirFolderToken: '',
     browserArgs: [
@@ -34,18 +35,19 @@ const venomOptions: Record<string, unknown> = {
         '--no-zygote',
         '--disable-gpu',
     ],
-    // 0 = never auto-close while waiting for QR (needed on Railway)
+    // 0 = never auto-close while waiting for QR
     autoClose: 0,
-    catchQR: (base64Qr: string, asciiQR: string) => {
+    catchQR: (_base64Qr: string, asciiQR: string) => {
+        console.log('\nScan this QR with WhatsApp → Linked Devices:\n');
         console.log(asciiQR);
+    },
+    statusFind: (status: string, session: string) => {
+        console.log(`[${session}] status: ${status}`);
     },
 }
 
 if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     venomOptions.browserPathExecutable = process.env.PUPPETEER_EXECUTABLE_PATH
-    venomOptions.puppeteerOptions = {
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    }
 }
 
 export const whatsappProvider = {
