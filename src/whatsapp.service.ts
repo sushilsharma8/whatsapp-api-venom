@@ -15,10 +15,16 @@ const writeFileAsync = promisify(fs.writeFile)
 
 const SECOND = 1000;
 
+// Railway / CI have no display — headless unless explicitly disabled
+const onRailway = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PUBLIC_DOMAIN)
+const headless =
+    process.env.WHATSAPP_HEADLESS === 'false'
+        ? false
+        : process.env.WHATSAPP_HEADLESS === 'true' || onRailway
+
 const venomOptions: Record<string, unknown> = {
     session: 'sessionName',
-    // false = visible Chrome window so you can scan QR locally
-    headless: process.env.WHATSAPP_HEADLESS === 'true' ? true : false,
+    headless,
     devtools: false,
     debug: false,
     logQR: true,
@@ -34,6 +40,7 @@ const venomOptions: Record<string, unknown> = {
         '--no-first-run',
         '--no-zygote',
         '--disable-gpu',
+        '--single-process',
     ],
     // 0 = never auto-close while waiting for QR
     autoClose: 0,
@@ -50,11 +57,65 @@ if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     venomOptions.browserPathExecutable = process.env.PUPPETEER_EXECUTABLE_PATH
 }
 
+type WhatsappGate = Whatsapp & { __ready: Promise<Whatsapp> }
+
+/** Start venom in the background so Nest can bind PORT (Railway healthcheck). */
+function createWhatsappGate(): WhatsappGate {
+    let client: Whatsapp | null = null
+    let initError: Error | null = null
+    const ready = create(venomOptions as any)
+        .then((c: Whatsapp) => {
+            client = c
+            console.log('[WhatsApp] client ready')
+            return c
+        })
+        .catch((e: Error) => {
+            initError = e
+            console.error('[WhatsApp] init failed', e)
+            throw e
+        })
+
+    const resolveProp = (prop: string | symbol) => {
+        if (initError) return Promise.reject(initError)
+        if (client) return Promise.resolve((client as any)[prop])
+        return ready.then((c) => (c as any)[prop])
+    }
+
+    // ponytail: Proxy queues calls until venom boots; supports whatsapp.page.screenshot()
+    const gate = (getParent: () => Promise<any>): any =>
+        new Proxy(function () {}, {
+            apply(_t, _this, args) {
+                return getParent().then((fn) => {
+                    if (typeof fn !== 'function') {
+                        throw new Error('WhatsApp property is not a function')
+                    }
+                    return fn(...args)
+                })
+            },
+            get(_t, prop: string | symbol) {
+                if (prop === 'then') return undefined
+                return gate(() =>
+                    getParent().then((parent) => {
+                        const val = parent?.[prop as any]
+                        return typeof val === 'function' ? val.bind(parent) : val
+                    }),
+                )
+            },
+        })
+
+    return new Proxy({} as WhatsappGate, {
+        get(_target, prop: string | symbol) {
+            if (prop === '__ready') return ready
+            if (prop === 'then') return undefined
+            return gate(() => resolveProp(prop))
+        },
+    })
+}
+
 export const whatsappProvider = {
     provide: 'WHATSAPP',
-    // Object form only — passing statusFind separately crashes venom-bot 4.3.x
-    // (it reads this.session in a free function). QR still prints via catchQR/logQR.
-    useFactory: async () => create(venomOptions as any),
+    // Sync factory — do not await create(), or Railway returns 502 while waiting for QR
+    useFactory: () => createWhatsappGate(),
 }
 
 const ONMESSAGE_HOOK = "onMessage"
@@ -80,7 +141,7 @@ export class WhatsappService implements OnApplicationShutdown {
     readonly files_lifetime: number
 
     constructor(
-        @Inject('WHATSAPP') private whatsapp: Whatsapp,
+        @Inject('WHATSAPP') private whatsapp: WhatsappGate,
         private config: WhatsappConfigService,
         private log: Logger,
     ) {
@@ -91,10 +152,17 @@ export class WhatsappService implements OnApplicationShutdown {
         this.mimetypes = this.config.mimetypes
         this.files_lifetime = this.config.files_lifetime * SECOND
 
+        // Hooks need a live client — attach after background venom init
+        this.whatsapp.__ready
+            .then(() => this.configureWebhooks())
+            .catch((e) => this.log.error(`WhatsApp not ready for webhooks: ${e}`))
+    }
+
+    private configureWebhooks() {
         this.log.log('Configuring webhooks...')
         for (const hook of HOOKS) {
             const env_name = ENV_PREFIX + hook.toUpperCase()
-            const url = config.get(env_name)
+            const url = this.config.get(env_name)
             if (!url) {
                 this.log.log(`Hook '${hook}' is disabled. Set ${env_name} environment variable to url if you want to enabled it.`)
                 continue
@@ -179,7 +247,9 @@ export class WhatsappService implements OnApplicationShutdown {
 
     onApplicationShutdown(signal ?: string): any {
         this.log.log('Close a browser...')
-        return this.whatsapp.close()
+        return this.whatsapp.__ready
+            .then((c) => c.close())
+            .catch(() => undefined)
     }
 
     private removeFile(file: string) {

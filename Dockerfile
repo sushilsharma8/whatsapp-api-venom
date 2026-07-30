@@ -3,7 +3,8 @@ FROM node:18-bookworm-slim AS builder
 
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json package-lock.json* ./
+COPY scripts ./scripts
 RUN npm install --legacy-peer-deps
 
 COPY nest-cli.json tsconfig.json tsconfig.build.json ./
@@ -16,6 +17,7 @@ FROM node:18-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    WHATSAPP_HEADLESS=true \
     NODE_ENV=production
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json package-lock.json* ./
+COPY scripts ./scripts
 RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist

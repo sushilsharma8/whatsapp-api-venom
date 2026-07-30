@@ -29,7 +29,8 @@ app.use(fileUpload({
     SwaggerModule.setup('', app, document);
 
     const config = app.get(WhatsappConfigService);
-    await app.listen(config.port);
+    // Bind all interfaces so Railway's proxy can reach the container
+    await app.listen(config.port, '0.0.0.0');
     console.log(`WhatsApp HTTP API is running on: ${await app.getUrl()}`);
 }
 
