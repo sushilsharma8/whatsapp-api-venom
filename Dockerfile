@@ -1,5 +1,6 @@
 # Venom-bot needs Chromium — use Debian-based Node, not Alpine
-FROM node:18-bookworm-slim AS builder
+# Node 20+: undici (via cheerio/venom) needs global File (missing on Node 18)
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -12,7 +13,7 @@ COPY src ./src
 RUN npm run build
 
 # --- runtime ---
-FROM node:18-bookworm-slim
+FROM node:20-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
