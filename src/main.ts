@@ -1,7 +1,5 @@
 import './file-polyfill'
 import * as http from 'http'
-import {DocumentBuilder, SwaggerModule} from "@nestjs/swagger";
-import {WhatsappConfigService} from "./config.service";
 
 /**
  * Bind PORT immediately (before Nest/venom load) so Railway never 502s during boot.
@@ -39,9 +37,14 @@ async function bootstrap() {
         })
     })
 
-    // Dynamic import so venom-bot is not required until after PORT is bound
-    const {NestFactory} = await import('@nestjs/core')
-    const {AppModule} = await import('./app.module')
+    // Every dependency is loaded only after Railway can reach this process.
+    const [{NestFactory}, {AppModule}, swagger, {WhatsappConfigService}] = await Promise.all([
+        import('@nestjs/core'),
+        import('./app.module'),
+        import('@nestjs/swagger'),
+        import('./config.service'),
+    ])
+    const {DocumentBuilder, SwaggerModule} = swagger
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fileUpload = require('express-fileupload')
 
