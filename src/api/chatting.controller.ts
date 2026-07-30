@@ -10,12 +10,12 @@ import {
     MessageReply,
     MessageText
 } from "./all.dto";
-import {Whatsapp} from "venom-bot";
 
 @Controller('api')
 @ApiTags('chatting')
 export class ChattingController {
-    constructor(@Inject('WHATSAPP') private whatsapp: Whatsapp) {
+    // ponytail: avoid `import { Whatsapp }` — emitDecoratorMetadata would require venom-bot at boot
+    constructor(@Inject('WHATSAPP') private whatsapp: any) {
     }
 
     @Post('/sendContactVcard')

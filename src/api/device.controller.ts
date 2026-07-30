@@ -1,18 +1,18 @@
 import {Controller, Get, Inject, Post} from '@nestjs/common';
 import {ApiTags} from "@nestjs/swagger";
-import {Whatsapp} from "venom-bot";
 
 
 @Controller('api')
 @ApiTags('device')
 export class DeviceController {
-    constructor(@Inject('WHATSAPP') private whatsapp: Whatsapp) {
+    // ponytail: no venom-bot import — Nest metadata would load undici before listen
+    constructor(@Inject('WHATSAPP') private whatsapp: any) {
     }
 
     @Get('/health')
     health() {
-        const status = typeof (this.whatsapp as any).__status === 'function'
-            ? (this.whatsapp as any).__status()
+        const status = typeof this.whatsapp.__status === 'function'
+            ? this.whatsapp.__status()
             : { ready: false, error: null }
         return {
             ok: true,

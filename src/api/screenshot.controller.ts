@@ -1,6 +1,5 @@
 import {Controller, Get, Inject, Res} from '@nestjs/common';
 import {ApiTags} from "@nestjs/swagger";
-import {Whatsapp} from "venom-bot";
 import {Readable} from "stream";
 import {Response} from 'express';
 
@@ -8,7 +7,8 @@ import {Response} from 'express';
 @Controller('api')
 @ApiTags('screenshot')
 export class ScreenshotController {
-    constructor(@Inject('WHATSAPP') private whatsapp: Whatsapp) {
+    // ponytail: no venom-bot import — Nest metadata would load undici before listen
+    constructor(@Inject('WHATSAPP') private whatsapp: any) {
     }
 
     @Get('/screenshot')
@@ -25,4 +25,3 @@ export class ScreenshotController {
         stream.pipe(res)
     }
 }
-

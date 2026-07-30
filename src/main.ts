@@ -1,18 +1,57 @@
 import './file-polyfill'
-import {NestFactory} from '@nestjs/core';
-import {AppModule} from './app.module';
+import * as http from 'http'
 import {DocumentBuilder, SwaggerModule} from "@nestjs/swagger";
 import {WhatsappConfigService} from "./config.service";
-const fileUpload = require('express-fileupload');
 
+/**
+ * Bind PORT immediately (before Nest/venom load) so Railway never 502s during boot.
+ * Nest Express app is attached as the request handler once ready.
+ */
 async function bootstrap() {
+    const port = Number(process.env.PORT || process.env.WHATSAPP_API_PORT || 3000)
+    let expressApp: ((req: http.IncomingMessage, res: http.ServerResponse) => void) | null = null
+
+    const server = http.createServer((req, res) => {
+        if (expressApp) {
+            expressApp(req, res)
+            return
+        }
+        // Early responses while Nest is still loading
+        const url = req.url || '/'
+        if (url.startsWith('/api/health') || url === '/' || url.startsWith('/docs')) {
+            res.writeHead(200, {'Content-Type': 'application/json'})
+            res.end(JSON.stringify({
+                ok: true,
+                starting: true,
+                message: 'HTTP up — WhatsApp/Nest still initializing',
+            }))
+            return
+        }
+        res.writeHead(503, {'Content-Type': 'application/json'})
+        res.end(JSON.stringify({ok: false, starting: true}))
+    })
+
+    await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(port, '0.0.0.0', () => {
+            console.log(`Early health server listening on 0.0.0.0:${port}`)
+            resolve()
+        })
+    })
+
+    // Dynamic import so venom-bot is not required until after PORT is bound
+    const {NestFactory} = await import('@nestjs/core')
+    const {AppModule} = await import('./app.module')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fileUpload = require('express-fileupload')
+
     const app = await NestFactory.create(AppModule, {
         logger: process.env.DEBUG != undefined ? ['log', 'debug', 'error', 'verbose', 'warn'] :
             ['log', 'error', 'warn'],
-    });
-    app.use(fileUpload({
-    }))
-    app.enableShutdownHooks();
+    })
+    app.use(fileUpload({}))
+    app.enableShutdownHooks()
+
     const options = new DocumentBuilder()
         .setTitle('WhatsApp venom API')
         .setDescription('WhatsApp HTTP API that you can configure in a click!')
@@ -21,25 +60,23 @@ async function bootstrap() {
         .addTag('device', 'Device information')
         .addTag('chatting', 'Chat methods')
         .addApiKey({
-                type: 'apiKey',
-                description: 'Your secret key',
-                name: 'X-VENOM-TOKEN'
-            }
-        )
-        .build();
-    const document = SwaggerModule.createDocument(app, options);
-    // Root + /docs (Railway users often open /docs)
-    SwaggerModule.setup('', app, document);
-    SwaggerModule.setup('docs', app, document);
+            type: 'apiKey',
+            description: 'Your secret key',
+            name: 'X-VENOM-TOKEN',
+        })
+        .build()
+    const document = SwaggerModule.createDocument(app, options)
+    SwaggerModule.setup('', app, document)
+    SwaggerModule.setup('docs', app, document)
 
-    const config = app.get(WhatsappConfigService);
-    const port = Number(config.port) || 3000
-    // Bind all interfaces so Railway's proxy can reach the container
-    await app.listen(port, '0.0.0.0');
-    console.log(`WhatsApp HTTP API is running on: ${await app.getUrl()}`);
+    await app.init()
+    expressApp = app.getHttpAdapter().getInstance()
+
+    const config = app.get(WhatsappConfigService)
+    console.log(`WhatsApp HTTP API ready (hostname=${config.hostname}, port=${port})`)
 }
 
 bootstrap().catch((err) => {
     console.error('Fatal bootstrap error', err)
-    process.exit(1)
-});
+    // Keep early server alive if Nest fails — better a partial app than Railway 502
+})
