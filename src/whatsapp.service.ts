@@ -199,12 +199,22 @@ export class WhatsappService implements OnApplicationBootstrap, OnApplicationShu
         this.files_lifetime = this.config.files_lifetime * SECOND
     }
 
-    /** Runs after Nest is listening — safe for Railway healthchecks. */
-    onApplicationBootstrap() {
-        this.log.log('HTTP is up — starting WhatsApp client in background...')
+    /** Starts chromium only when requested on Railway. */
+    start() {
+        this.log.log('Starting WhatsApp client in background...')
         this.whatsapp.__start()
             .then(() => this.configureWebhooks())
             .catch((e) => this.log.error(`WhatsApp not ready for webhooks: ${e}`))
+    }
+
+    /** Local development autostarts; Railway needs explicit POST /api/start-whatsapp. */
+    onApplicationBootstrap() {
+        const autostart = process.env.WHATSAPP_AUTOSTART === 'true' || !onRailway
+        if (autostart) {
+            this.start()
+        } else {
+            this.log.log('WhatsApp is idle. POST /api/start-whatsapp to launch it.')
+        }
     }
 
     private configureWebhooks() {

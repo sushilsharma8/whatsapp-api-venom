@@ -19,6 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     WHATSAPP_HEADLESS=true \
+    WHATSAPP_AUTOSTART=false \
     NODE_ENV=production
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

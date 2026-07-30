@@ -1,12 +1,16 @@
 import {Controller, Get, Inject, Post} from '@nestjs/common';
 import {ApiTags} from "@nestjs/swagger";
+import {WhatsappService} from "../whatsapp.service";
 
 
 @Controller('api')
 @ApiTags('device')
 export class DeviceController {
     // ponytail: no venom-bot import — Nest metadata would load undici before listen
-    constructor(@Inject('WHATSAPP') private whatsapp: any) {
+    constructor(
+        @Inject('WHATSAPP') private whatsapp: any,
+        private readonly whatsappService: WhatsappService,
+    ) {
     }
 
     @Get('/health')
@@ -17,6 +21,15 @@ export class DeviceController {
         return {
             ok: true,
             whatsapp: status,
+        }
+    }
+
+    @Post('/start-whatsapp')
+    startWhatsapp() {
+        this.whatsappService.start()
+        return {
+            ok: true,
+            message: 'WhatsApp startup requested. Check /api/health and deployment logs for the QR code.',
         }
     }
 
