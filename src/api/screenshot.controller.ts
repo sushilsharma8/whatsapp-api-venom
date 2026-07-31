@@ -13,6 +13,17 @@ export class ScreenshotController {
 
     @Get('/screenshot')
     async screenshot(@Res() res: Response,) {
+        const status = typeof this.whatsapp.__status === 'function'
+            ? this.whatsapp.__status()
+            : { ready: false, phase: 'idle' }
+        if (!status.ready) {
+            res.status(503).json({
+                ok: false,
+                phase: status.phase,
+                message: 'WhatsApp not ready yet. Scan QR via GET /api/qr first.',
+            })
+            return
+        }
         const buffer = await this.whatsapp.page.screenshot();
         const stream = new Readable();
         stream.push(buffer);

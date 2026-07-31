@@ -21,6 +21,18 @@ const headless =
         ? false
         : process.env.WHATSAPP_HEADLESS === 'true' || onRailway
 
+type WhatsappPhase = 'idle' | 'starting' | 'waiting_qr' | 'ready' | 'error'
+
+type QrPayload = {
+    base64: string | null
+    ascii: string | null
+    attempts: number | null
+    updatedAt: string | null
+}
+
+let phase: WhatsappPhase = 'idle'
+let latestQr: QrPayload = { base64: null, ascii: null, attempts: null, updatedAt: null }
+
 const venomOptions: Record<string, unknown> = {
     session: 'sessionName',
     headless,
@@ -53,7 +65,14 @@ const venomOptions: Record<string, unknown> = {
           ],
     // 0 = never auto-close while waiting for QR
     autoClose: 0,
-    catchQR: (_base64Qr: string, asciiQR: string) => {
+    catchQR: (base64Qr: string, asciiQR: string, attempts: number) => {
+        phase = 'waiting_qr'
+        latestQr = {
+            base64: base64Qr || null,
+            ascii: asciiQR || null,
+            attempts: typeof attempts === 'number' ? attempts : null,
+            updatedAt: new Date().toISOString(),
+        }
         console.log('\nScan this QR with WhatsApp → Linked Devices:\n');
         console.log(asciiQR);
     },
@@ -69,7 +88,12 @@ if (process.env.PUPPETEER_EXECUTABLE_PATH) {
 type WhatsappGate = Whatsapp & {
     __ready: Promise<Whatsapp>
     __start: () => Promise<Whatsapp>
-    __status: () => { ready: boolean; error: string | null }
+    __status: () => {
+        ready: boolean
+        phase: WhatsappPhase
+        error: string | null
+        qr: QrPayload
+    }
 }
 
 /**
@@ -83,15 +107,19 @@ function createWhatsappGate(): WhatsappGate {
 
     const start = (): Promise<Whatsapp> => {
         if (ready) return ready
+        phase = 'starting'
         ready = (async () => {
             console.log('[WhatsApp] starting venom (dynamic import)...')
             const { create } = await import('venom-bot')
             const c = await create(venomOptions as any)
             client = c
+            phase = 'ready'
+            latestQr = { base64: null, ascii: null, attempts: null, updatedAt: null }
             console.log('[WhatsApp] client ready')
             return c
         })().catch((e: Error) => {
             initError = e
+            phase = 'error'
             console.error('[WhatsApp] init failed', e)
             throw e
         })
@@ -139,7 +167,9 @@ function createWhatsappGate(): WhatsappGate {
             if (prop === '__status') {
                 return () => ({
                     ready: !!client,
+                    phase,
                     error: initError ? String(initError.message || initError) : null,
+                    qr: latestQr,
                 })
             }
             if (prop === 'then') return undefined
