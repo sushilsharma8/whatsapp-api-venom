@@ -1,7 +1,17 @@
-import {Controller, Get, Inject, Post} from '@nestjs/common';
+import {Controller, Get, Inject, Post, Res} from '@nestjs/common';
 import {ApiTags} from "@nestjs/swagger";
+import {Response} from 'express';
 import {WhatsappService} from "../whatsapp.service";
 
+function qrPngBuffer(base64: string): Buffer | null {
+    const raw = base64.includes(',') ? base64.split(',')[1] : base64
+    if (!raw) return null
+    try {
+        return Buffer.from(raw, 'base64')
+    } catch {
+        return null
+    }
+}
 
 @Controller('api')
 @ApiTags('device')
@@ -18,35 +28,43 @@ export class DeviceController {
         const status = typeof this.whatsapp.__status === 'function'
             ? this.whatsapp.__status()
             : { ready: false, phase: 'idle', error: null, qr: null }
-        // Keep health payload light — full QR is on GET /api/qr
+        // Keep health payload light — scanable QR is GET /api/qr (PNG)
         return {
             ok: true,
             whatsapp: {
                 ready: status.ready,
                 phase: status.phase,
                 error: status.error,
-                hasQr: !!(status.qr && status.qr.ascii),
+                hasQr: !!(status.qr && (status.qr.base64 || status.qr.ascii)),
             },
         }
     }
 
+    /** PNG you can open in a browser and scan — not JSON (escaped \\n breaks ASCII QR). */
     @Get('/qr')
-    qr() {
+    qrImage(@Res() res: Response) {
         const status = typeof this.whatsapp.__status === 'function'
             ? this.whatsapp.__status()
             : { ready: false, phase: 'idle', qr: null }
         if (status.ready) {
-            return { ok: true, phase: 'ready', message: 'Already linked — no QR needed.', qr: null }
+            res.status(200).json({ ok: true, phase: 'ready', message: 'Already linked — no QR needed.' })
+            return
         }
-        if (!status.qr?.ascii && !status.qr?.base64) {
-            return {
+        const buf = status.qr?.base64 ? qrPngBuffer(status.qr.base64) : null
+        if (!buf) {
+            res.status(404).json({
                 ok: false,
                 phase: status.phase,
-                message: 'No QR yet. POST /api/start-whatsapp first, then retry.',
-                qr: null,
-            }
+                message: 'No QR yet. POST /api/start-whatsapp first, then open /api/qr in a browser.',
+            })
+            return
         }
-        return { ok: true, phase: status.phase, qr: status.qr }
+        res.set({
+            'Content-Type': 'image/png',
+            'Cache-Control': 'no-store',
+            'Content-Length': buf.length,
+        })
+        res.send(buf)
     }
 
     @Post('/start-whatsapp')
@@ -54,7 +72,7 @@ export class DeviceController {
         this.whatsappService.start()
         return {
             ok: true,
-            message: 'WhatsApp startup requested. Poll GET /api/qr (or /api/health) until hasQr/ready.',
+            message: 'WhatsApp startup requested. Open GET /api/qr in a browser and scan the PNG.',
         }
     }
 
