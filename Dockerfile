@@ -4,6 +4,9 @@ FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_SKIP_DOWNLOAD=true
+
 COPY package.json package-lock.json* ./
 COPY scripts ./scripts
 RUN npm install --legacy-peer-deps
@@ -17,6 +20,7 @@ FROM node:20-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     WHATSAPP_HEADLESS=true \
     WHATSAPP_AUTOSTART=false \
